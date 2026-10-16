@@ -42,4 +42,5 @@ def plan_trip(
         "end": {"label": destination.label, "lat": destination.lat, "lon": destination.lon},
         "depart_at": depart_at.isoformat(),
         "sample_miles": sample_miles,
+        "load_lb": load_lb,
     }
