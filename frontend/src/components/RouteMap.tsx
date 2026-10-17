@@ -1,72 +1,116 @@
-import { useRef, useEffect, useState } from 'react'
-import type { TripResult } from "../api/trips";
+import { useEffect, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
+import type { GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import type { TripResult } from '../api/trips'
+import {
+  checkpointFeatureCollection,
+  routeFeatureCollection,
+  shownRoutes,
+} from './routes'
 
-export default function RouteMap({ trip }: { trip: TripResult }) {
+
+const SELECTED_COLOR = '#2563eb'
+const OTHER_COLOR = '#6b7280'
+
+export default function RouteMap({
+    trip,
+    selectedRouteIndex
+}: { trip: TripResult, selectedRouteIndex: number | null }) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const mapRef = useRef<maplibregl.Map | null>(null)
+    const [ready, setReady] = useState(false)
+    const [initialMapState] = useState(() => ({
+        selectedRouteIndex: selectedRouteIndex ?? 0,
+    }))
     useEffect(() => {
         const container = containerRef.current
         if (!container) return
-        
+    
+        const bounds = new maplibregl.LngLatBounds()
+        bounds.extend([trip.start.lon, trip.start.lat])
+        bounds.extend([trip.end.lon, trip.end.lat])
+        for (const route of shownRoutes(trip.routes)) {
+          for (const coord of route.coords) {
+            bounds.extend(coord)
+          }
+        }
+    
         const map = new maplibregl.Map({
             container,
             style: 'https://tiles.openfreemap.org/styles/bright',
-            // center: [trip.start.lon, trip.start.lat],
-            center: [-122.486052, 37.830348],
-            zoom: 15,
+            center: [trip.start.lon, trip.start.lat],
+            zoom: 7,
             attributionControl: { compact: true },
         })
         mapRef.current = map
+
         const onLoad = () => {
             map.addSource('route', {
-                'type': 'geojson',
-                'data': {
-                    'type': 'Feature',
-                    'properties': {},
-                    'geometry': {
-                        'type': 'LineString',
-                        'coordinates': [
-                            [-122.48369693756104, 37.83381888486939],
-                            [-122.48348236083984, 37.83317489144141],
-                            [-122.48339653015138, 37.83270036637107],
-                            [-122.48356819152832, 37.832056363179625],
-                            [-122.48404026031496, 37.83114119107971],
-                            [-122.48404026031496, 37.83049717427869],
-                            [-122.48348236083984, 37.829920943955045],
-                            [-122.48356819152832, 37.82954808664175],
-                            [-122.48507022857666, 37.82944639795659],
-                            [-122.48610019683838, 37.82880236636284],
-                            [-122.48695850372314, 37.82931081282506],
-                            [-122.48700141906738, 37.83080223556934],
-                            [-122.48751640319824, 37.83168351665737],
-                            [-122.48803138732912, 37.832158048267786],
-                            [-122.48888969421387, 37.83297152392784],
-                            [-122.48987674713133, 37.83263257682617],
-                            [-122.49043464660643, 37.832937629287755],
-                            [-122.49125003814696, 37.832429207817725],
-                            [-122.49163627624512, 37.832564787218985],
-                            [-122.49223709106445, 37.83337825839438],
-                            [-122.49378204345702, 37.83368330777276]
-                        ]
-                    }
-                }
-            });
+                type: 'geojson',
+                data: routeFeatureCollection(trip.routes, initialMapState.selectedRouteIndex),
+            })
             map.addLayer({
-                'id': 'route',
-                'type': 'line',
-                'source': 'route',
-                'layout': {
-                    'line-join': 'round',
-                    'line-cap': 'round'
+                id: 'route',
+                type: 'line',
+                source: 'route',
+                layout: {
+                'line-join': 'round',
+                'line-cap': 'round',
                 },
-                'paint': {
-                    'line-color': '#888',
-                    'line-width': 8
+                paint: {
+                'line-color': [
+                    'case',
+                    ['==', ['get', 'selected'], 1],
+                    SELECTED_COLOR,
+                    OTHER_COLOR,
+                ],
+                'line-width': ['case', ['==', ['get', 'selected'], 1], 6, 4],
+                },
+            })
+            map.addSource('checkpoints', {
+                type: 'geojson',
+                data: checkpointFeatureCollection(trip, initialMapState.selectedRouteIndex),
+            })
+            map.addLayer({
+                id: 'checkpoint',
+                type: 'circle',
+                source: 'checkpoints',
+                paint: {
+                'circle-radius': 6,
+                'circle-color': '#16a34a',
+                'circle-stroke-width': 1.5,
+                'circle-stroke-color': '#ffffff',
+                },
+            })
+            map.on('click', 'checkpoint', (event) => {
+                const feature = event.features?.[0]
+                const properties = feature?.properties
+                if (!event.lngLat || !properties) return
+                const parts = [String(properties.eta_label), String(properties.severity)]
+                if (properties.wind_mph != null) parts.push(`${properties.wind_mph} mph wind`)
+                if (typeof properties.rain_in_hr === 'number') {
+                parts.push(`${properties.rain_in_hr} in/hr rain`)
                 }
-            });
+                if (typeof properties.snow_in_hr === 'number') {
+                parts.push(`${properties.snow_in_hr} in/hr snow`)
+                }
+                new maplibregl.Popup({ closeButton: false, offset: 12 })
+                .setLngLat(event.lngLat)
+                .setText(parts.join(' · '))
+                .addTo(map)
+            })
+            map.on('mouseenter', 'checkpoint', () => {
+                map.getCanvas().style.cursor = 'pointer'
+            })
+            map.on('mouseleave', 'checkpoint', () => {
+                map.getCanvas().style.cursor = ''
+            })
             map.resize()
+            if (!bounds.isEmpty()) {
+                map.fitBounds(bounds, { padding: 48, duration: 0 })
+            }
+            setReady(true)
         }
         map.on('load', onLoad)
         return () => {
@@ -75,7 +119,18 @@ export default function RouteMap({ trip }: { trip: TripResult }) {
             mapRef.current = null
         }
 
-    }, [trip])
+    }, [trip, initialMapState])
+    useEffect(() => {
+        const map = mapRef.current
+        if (!map || !ready) return
+        const routeSource = map.getSource('route') as GeoJSONSource | undefined
+        routeSource?.setData(routeFeatureCollection(trip.routes, initialMapState.selectedRouteIndex))
+        const checkpointSource = map.getSource('checkpoints') as GeoJSONSource | undefined
+        checkpointSource?.setData(
+          checkpointFeatureCollection(trip, initialMapState.selectedRouteIndex),
+        )
+      }, [trip, initialMapState])
+        
     
-    return <div ref={containerRef} style={{ width: '100%', height: '400px' }} />
+    return <div ref={containerRef} className="map-container" data-testid="route-map"/>
 }

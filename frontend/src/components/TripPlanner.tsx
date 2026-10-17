@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createTrip } from '../api/trips'
 import type { TripResult } from '../api/trips'
 import { ApiError } from '../api/types'
+import { defaultSelectedRouteIndex, shownRoutes } from './routes'
 import RouteMap from './RouteMap'
 
 const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -23,6 +24,7 @@ export default function TripPlanner() {
   const [sampleMiles, setSampleMiles] = useState<10 | 25 | 50>(25)
   const [load, setLoad] = useState('40000')
   const [trip, setTrip] = useState<TripResult | null>(null)
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
@@ -51,9 +53,10 @@ export default function TripPlanner() {
         sample_miles: sampleMiles,
       })
       setTrip(result)
-      console.log(result)
+      setSelectedRouteIndex(0)
     } catch (err) {
       setTrip(null)
+      setSelectedRouteIndex(null)
       setError(err instanceof ApiError ? err.message : 'Trip planning failed.')
     } finally {
       setPending(false)
@@ -116,8 +119,22 @@ export default function TripPlanner() {
 
       {error && <p className="error" role="alert">{error}</p>}
       {trip && (
-        <div>
-          <RouteMap trip={trip} />
+        <div className="planner-results">
+          <div className="planner-body">
+            <div className="map-column">
+              <RouteMap
+                trip={trip}
+                selectedRouteIndex={selectedRouteIndex ?? defaultSelectedRouteIndex(trip.routes)}
+              />
+            </div>
+            <div className="route-cards">
+              {shownRoutes(trip.routes).map((route) => (
+                <div key={route.provider_route_index}>
+                  <p>{route.provider_route_index}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
       
