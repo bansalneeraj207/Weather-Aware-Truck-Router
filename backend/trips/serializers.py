@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-SAMPLE_MILES = (10, 25, 50)
+from trips.sampling import SAMPLE_MILES
 
 
 class TripRequestSerializer(serializers.Serializer):
