@@ -15,6 +15,13 @@ class WeatherCondition(StrEnum):
     RAIN = "rain"
     SNOW = "snow"
 
+
+class RecommendationStatus(StrEnum):
+    RECOMMENDED = "RECOMMENDED"
+    NO_ACCEPTABLE_ROUTE = "NO_ACCEPTABLE_ROUTE"
+    NO_ROUTES = "NO_ROUTES"
+
+
 THRESHOLDS = {
     WeatherCondition.WIND: (("25", Severity.LOW), ("35", Severity.MODERATE), ("45", Severity.HIGH)),
     WeatherCondition.RAIN: (("0.10", Severity.LOW), ("0.25", Severity.MODERATE), ("0.50", Severity.HIGH)),
@@ -81,3 +88,13 @@ class ReasonCode(StrEnum):
     def dominated_by(cls, condition: WeatherCondition) -> "ReasonCode":
         return cls(f"DOMINATED_BY_{condition.name}")
 
+
+class RecommendationReasonCode(StrEnum):
+    RECOMMENDATION_RECOMMENDED = "RECOMMENDATION_RECOMMENDED"
+    RECOMMENDATION_NO_ACCEPTABLE_ROUTE = "RECOMMENDATION_NO_ACCEPTABLE_ROUTE"
+    RECOMMENDATION_NO_ROUTES = "RECOMMENDATION_NO_ROUTES"
+    RECOMMENDATION_ALL_ROUTES_NO_TRAVEL = "RECOMMENDATION_ALL_ROUTES_NO_TRAVEL"
+    ROUTE_NO_TRAVEL_EXPOSURE = "ROUTE_NO_TRAVEL_EXPOSURE"
+    ROUTE_INCOMPLETE_COVERAGE = "ROUTE_INCOMPLETE_COVERAGE"
+    ROUTE_FULLY_ASSESSED = "ROUTE_FULLY_ASSESSED"
+    ROUTE_RECOMMENDED_INCOMPLETE = "ROUTE_RECOMMENDED_INCOMPLETE"
