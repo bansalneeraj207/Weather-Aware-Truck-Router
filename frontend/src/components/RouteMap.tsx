@@ -119,7 +119,11 @@ export function RouteMap({
       })
       map.addSource('checkpoints', {
         type: 'geojson',
-        data: checkpointFeatureCollection(trip, initialMapState.selectedRouteIndex),
+        data: checkpointFeatureCollection(
+          trip,
+          initialMapState.selectedRouteIndex,
+          initialMapState.showForecastOverlay ? initialMapState.forecastHour : null,
+        ),
       })
       map.addLayer({
         id: 'checkpoint',
@@ -136,8 +140,14 @@ export function RouteMap({
         const feature = event.features?.[0]
         const properties = feature?.properties
         if (!event.lngLat || !properties) return
-        const parts = [String(properties.eta_label), String(properties.severity)]
-        if (properties.wind_mph != null) parts.push(`${properties.wind_mph} mph wind`)
+        const forecastMode = properties.weather_mode === 'FORECAST'
+        const parts = [
+          forecastMode ? String(properties.forecast_label) : String(properties.eta_label),
+          String(properties.severity),
+        ]
+        if (properties.wind_mph != null) {
+          parts.push(`${properties.wind_mph} mph wind`)
+        }
         if (typeof properties.rain_in_hr === 'number') {
           parts.push(`${properties.rain_in_hr} in/hr rain`)
         }
@@ -179,7 +189,11 @@ export function RouteMap({
     routeSource?.setData(routeFeatureCollection(trip.routes, selectedRouteIndex))
     const checkpointSource = map.getSource('checkpoints') as GeoJSONSource | undefined
     checkpointSource?.setData(
-      checkpointFeatureCollection(trip, selectedRouteIndex),
+      checkpointFeatureCollection(
+        trip,
+        selectedRouteIndex,
+        showForecastOverlay ? forecastHour : null,
+      ),
     )
     const heatmapSource = map.getSource('heatmap') as GeoJSONSource | undefined
     heatmapSource?.setData(

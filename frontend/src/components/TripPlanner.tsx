@@ -17,6 +17,20 @@ function localDepartureValue(date = new Date()): string {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
+function forecastTimeLabel(departAt: string, hour: number): string {
+  const departure = new Date(departAt)
+  if (Number.isNaN(departure.getTime())) return `Departure + ${hour} hours`
+
+  const forecastTime = new Date(departure.getTime() + hour * 60 * 60_000)
+  return forecastTime.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+}
+
 
 export default function TripPlanner() {
   const [start, setStart] = useState('')
@@ -58,7 +72,7 @@ export default function TripPlanner() {
         sample_miles: sampleMiles,
       })
       setTrip(result)
-      setSelectedRouteIndex(0)
+      setSelectedRouteIndex(defaultSelectedRouteIndex(result.routes))
       setForecastHour(0)
       setShowForecastOverlay(false)
     } catch (err) {
@@ -153,14 +167,16 @@ export default function TripPlanner() {
             <div className="map-column">
               <div className="map-toolbar">
                 <strong>Route map</strong>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={showForecastOverlay}
-                    onChange={(event) => setShowForecastOverlay(event.target.checked)}
-                  />
-                  Forecast heatmap
-                </label>
+                <div className="forecast-controls">
+                  <label className="forecast-toggle">
+                    <input
+                      type="checkbox"
+                      checked={showForecastOverlay}
+                      onChange={(event) => setShowForecastOverlay(event.target.checked)}
+                    />
+                    Forecast heatmap
+                  </label>
+                </div>
               </div>
               <RouteMap
                 key={trip.id}
@@ -171,6 +187,20 @@ export default function TripPlanner() {
                 forecastHour={forecastHour}
                 showForecastOverlay={showForecastOverlay}
               />
+              {showForecastOverlay && (
+                <label className="forecast-slider">
+                  <span>Forecast time: {forecastTimeLabel(trip.depart_at, forecastHour)}</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max={trip.heatmap.hours}
+                    step="1"
+                    value={forecastHour}
+                    onChange={(event) => setForecastHour(Number(event.target.value))}
+                    aria-valuetext={forecastTimeLabel(trip.depart_at, forecastHour)}
+                  />
+                </label>
+              )}
 
             </div>
             <div className="route-cards">
@@ -207,7 +237,9 @@ export default function TripPlanner() {
             </span>
           </div>
           <p className="wind-note">
-            Click a checkpoint for its arrival-time weather details.
+            {showForecastOverlay
+              ? 'Checkpoint colors and weather details show the selected forecast hour.'
+              : 'Click a checkpoint for its arrival-time weather details.'}
           </p>
         </div>
       )}

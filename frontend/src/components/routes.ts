@@ -31,28 +31,61 @@ export function defaultSelectedRouteIndex(routes: TripRoute[]): number | null {
 export function checkpointFeatureCollection(
   trip: TripResult,
   selectedRouteIndex: number,
+  forecastHour: number | null = null,
 ) {
   const route = shownRoutes(trip.routes).find(
     (candidate) => candidate.provider_route_index === selectedRouteIndex,
   )
   const checkpoints = route?.checkpoints ?? []
+  const forecastPoints = forecastHour === null
+    ? []
+    : forecastPointsForRoute(trip, selectedRouteIndex)
   return {
     type: 'FeatureCollection' as const,
-    features: checkpoints.map((checkpoint) => ({
-      type: 'Feature' as const,
-      properties: {
-        wind_mph: checkpoint.wind_mph,
-        rain_in_hr: checkpoint.rain_in_hr ?? null,
-        snow_in_hr: checkpoint.snow_in_hr ?? null,
-        eta_label: etaLabel(checkpoint.eta),
-        severity: checkpoint.final_severity ?? 'UNKNOWN',
-      },
-      geometry: {
-        type: 'Point' as const,
-        coordinates: [checkpoint.lon, checkpoint.lat] as [number, number],
-      },
-    })),
+    features: checkpoints.map((checkpoint, index) => {
+      const forecastPoint = forecastHour === null ? null : forecastPoints[index]
+      const forecastSeverity = forecastHour === null
+        ? null
+        : forecastPoint?.severity[forecastHour] ?? null
+      return {
+        type: 'Feature' as const,
+        properties: {
+          wind_mph: forecastPoint === null
+            ? checkpoint.wind_mph
+            : forecastPoint.wind_mph[forecastHour as number] ?? null,
+          rain_in_hr: forecastPoint === null
+            ? checkpoint.rain_in_hr ?? null
+            : forecastPoint.rain_in_hr[forecastHour as number] ?? null,
+          snow_in_hr: forecastPoint === null
+            ? checkpoint.snow_in_hr ?? null
+            : forecastPoint.snow_in_hr[forecastHour as number] ?? null,
+          eta_label: etaLabel(checkpoint.eta),
+          forecast_label: forecastHour === null
+            ? null
+            : forecastTimeLabel(trip.depart_at, forecastHour),
+          weather_mode: forecastHour === null ? 'ARRIVAL' : 'FORECAST',
+          severity: forecastSeverity ?? checkpoint.final_severity ?? 'UNKNOWN',
+        },
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [checkpoint.lon, checkpoint.lat] as [number, number],
+        },
+      }
+    }),
   }
+}
+
+function forecastTimeLabel(departAt: string, hour: number): string {
+  const departure = new Date(departAt)
+  if (Number.isNaN(departure.getTime())) return `Forecast + ${hour} hours`
+
+  return new Date(departure.getTime() + hour * 60 * 60_000).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
 }
 
 function forecastPointsForRoute(trip: TripResult, selectedRouteIndex: number) {

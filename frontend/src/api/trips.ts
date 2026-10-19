@@ -47,6 +47,9 @@ export interface HeatmapPoint {
   lat: number
   lon: number
   severity: (Severity | null)[]
+  wind_mph: (number | null)[]
+  rain_in_hr: (number | null)[]
+  snow_in_hr: (number | null)[]
 }
 
 export interface TripResult {

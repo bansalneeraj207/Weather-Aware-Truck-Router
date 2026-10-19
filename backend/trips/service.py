@@ -89,6 +89,9 @@ def _heatmap(
         for checkpoint in route["checkpoints"]:
             forecast = forecasts[_forecast_key(checkpoint["lat"], checkpoint["lon"])]
             severities = []
+            wind_mph = []
+            rain_in_hr = []
+            snow_in_hr = []
             for hour in range(FORECAST_HOURS + 1):
                 moment = depart_at + timedelta(hours=hour)
                 reading = forecast.at(moment)
@@ -103,11 +106,17 @@ def _heatmap(
                     if assessment.final_severity is None
                     else assessment.final_severity.name
                 )
+                wind_mph.append(reading.wind_mph)
+                rain_in_hr.append(reading.rain_in_hr)
+                snow_in_hr.append(reading.snow_in_hr)
             points.append(
                 {
                     "lat": checkpoint["lat"],
                     "lon": checkpoint["lon"],
                     "severity": severities,
+                    "wind_mph": wind_mph,
+                    "rain_in_hr": rain_in_hr,
+                    "snow_in_hr": snow_in_hr,
                 }
             )
     return {"hours": FORECAST_HOURS, "points": points}
@@ -121,6 +130,9 @@ def _unknown_heatmap(prepared: list[dict]) -> dict:
                 "lat": checkpoint["lat"],
                 "lon": checkpoint["lon"],
                 "severity": [None] * (FORECAST_HOURS + 1),
+                "wind_mph": [None] * (FORECAST_HOURS + 1),
+                "rain_in_hr": [None] * (FORECAST_HOURS + 1),
+                "snow_in_hr": [None] * (FORECAST_HOURS + 1),
             }
             for route in prepared
             for checkpoint in route["checkpoints"]

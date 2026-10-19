@@ -101,16 +101,37 @@ button:disabled {
 .map-toolbar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 0.4rem;
+  align-items: start;
+  gap: 1rem;
   color: var(--text-h);
   font-size: 0.85rem;
 }
 
-.map-toolbar label {
+.forecast-controls,
+.forecast-toggle,
+.forecast-slider {
   display: flex;
+}
+
+.forecast-controls {
+  align-items: center;
+}
+
+.forecast-toggle {
   align-items: center;
   gap: 0.4rem;
+}
+
+.forecast-slider {
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+}
+
+.forecast-slider input[type='range'] {
+  min-height: auto;
+  width: 100%;
+  padding: 0;
 }
 
 .route-card {
@@ -217,5 +238,14 @@ button:disabled {
 
   .map-container {
     height: 24rem;
+  }
+
+  .map-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .forecast-controls {
+    align-items: start;
   }
 }
