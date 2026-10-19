@@ -23,7 +23,8 @@ export function shownRoutes(routes: TripRoute[]): TripRoute[] {
 /** Prefer the recommendation; fall back to the first returned alternative. */
 export function defaultSelectedRouteIndex(routes: TripRoute[]): number | null {
   const visible = shownRoutes(routes)
-  return visible[0]?.provider_route_index
+  return visible.find((route) => route.is_recommended)?.provider_route_index
+    ?? visible[0]?.provider_route_index
     ?? null
 }
 
@@ -40,7 +41,11 @@ export function checkpointFeatureCollection(
     features: checkpoints.map((checkpoint) => ({
       type: 'Feature' as const,
       properties: {
+        wind_mph: checkpoint.wind_mph,
+        rain_in_hr: checkpoint.rain_in_hr ?? null,
+        snow_in_hr: checkpoint.snow_in_hr ?? null,
         eta_label: etaLabel(checkpoint.eta),
+        severity: checkpoint.final_severity ?? 'UNKNOWN',
       },
       geometry: {
         type: 'Point' as const,
@@ -55,7 +60,7 @@ function forecastPointsForRoute(trip: TripResult, selectedRouteIndex: number) {
   for (const route of shownRoutes(trip.routes)) {
     const count = route.checkpoints.length
     if (route.provider_route_index === selectedRouteIndex) {
-      return route.checkpoints.slice(offset, offset + count)
+      return trip.heatmap.points.slice(offset, offset + count)
     }
     offset += count
   }
@@ -66,12 +71,13 @@ function forecastPointsForRoute(trip: TripResult, selectedRouteIndex: number) {
 export function heatmapFeatureCollection(
   trip: TripResult,
   selectedRouteIndex: number,
+  hour: number,
 ) {
   return {
     type: 'FeatureCollection' as const,
     features: forecastPointsForRoute(trip, selectedRouteIndex).map((point) => ({
       type: 'Feature' as const,
-      properties: { },
+      properties: { severity: point.severity[hour] ?? 'UNKNOWN' },
       geometry: {
         type: 'Point' as const,
         coordinates: [point.lon, point.lat] as [number, number],
@@ -81,7 +87,7 @@ export function heatmapFeatureCollection(
 }
 
 export function routeFeatureCollection(routes: TripRoute[], selectedRouteIndex: number) {
-  const drawable = shownRoutes(routes).filter((route) => route.coords.length >= 2)
+  const drawable = shownRoutes(routes).filter((route) => route.geometry.length >= 2)
   const ordered = [
     ...drawable.filter((route) => route.provider_route_index !== selectedRouteIndex),
     ...drawable.filter((route) => route.provider_route_index === selectedRouteIndex),
@@ -91,7 +97,7 @@ export function routeFeatureCollection(routes: TripRoute[], selectedRouteIndex: 
     features: ordered.map((route) => ({
       type: 'Feature' as const,
       properties: { selected: route.provider_route_index === selectedRouteIndex ? 1 : 0 },
-      geometry: { type: 'LineString' as const, coordinates: route.coords },
+      geometry: { type: 'LineString' as const, coordinates: route.geometry },
     })),
   }
 }

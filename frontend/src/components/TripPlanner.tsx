@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { createTrip } from '../api/trips'
 import type { TripResult } from '../api/trips'
 import { ApiError } from '../api/types'
+import { RouteMap } from './RouteMap'
 import { defaultSelectedRouteIndex, shownRoutes } from './routes'
-import RouteMap from './RouteMap'
+import { RouteCard } from './RouteCard'
 
 const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -18,13 +19,15 @@ function localDepartureValue(date = new Date()): string {
 
 
 export default function TripPlanner() {
-  const [start, setStart] = useState('Mumbai, India')
-  const [end, setEnd] = useState('Delhi, India')
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
   const [depart, setDepart] = useState(localDepartureValue)
   const [sampleMiles, setSampleMiles] = useState<10 | 25 | 50>(25)
   const [load, setLoad] = useState('40000')
   const [trip, setTrip] = useState<TripResult | null>(null)
   const [selectedRouteIndex, setSelectedRouteIndex] = useState<number | null>(null)
+  const [forecastHour, setForecastHour] = useState(0)
+  const [showForecastOverlay, setShowForecastOverlay] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
@@ -49,11 +52,15 @@ export default function TripPlanner() {
         start: start.trim(),
         end: end.trim(),
         load_lb: loadWeight,
+        // Date parses datetime-local in the browser's timezone, then sends the
+        // matching UTC instant to the API.
         depart_at: departure.toISOString(),
         sample_miles: sampleMiles,
       })
       setTrip(result)
       setSelectedRouteIndex(0)
+      setForecastHour(0)
+      setShowForecastOverlay(false)
     } catch (err) {
       setTrip(null)
       setSelectedRouteIndex(null)
@@ -118,26 +125,92 @@ export default function TripPlanner() {
       </form>
 
       {error && <p className="error" role="alert">{error}</p>}
+      
       {trip && (
         <div className="planner-results">
+          <div className="planner-summary">
+            <p className="final">
+              {trip.recommended_route_index !== null
+                ? `Recommended: Option ${trip.recommended_route_index + 1} has the lowest weather risk.`
+                : 'No route can be recommended for this departure.'}
+            </p>
+            {trip.routing_segments > 1 && (
+              <p className="routing-notice" role="status">
+                This long-haul route is shown as {trip.routing_segments} connected legs because the routing provider has a per-request distance limit. Weather risk covers the complete combined trip; alternative long-haul routes are not available for this result.
+              </p>
+            )}
+            {trip.weather_forecast_partial ? (
+              <p className="warning" role="status">
+                Forecast coverage is partial; route segments beyond the forecast window are shown as Unknown.
+              </p>
+            ) : trip.routes.some((route) => route.metrics.unknown_miles !== '0') && (
+              <p className="warning" role="status">
+                Some weather data is unavailable.
+              </p>
+            )}
+          </div>
           <div className="planner-body">
             <div className="map-column">
+              <div className="map-toolbar">
+                <strong>Route map</strong>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={showForecastOverlay}
+                    onChange={(event) => setShowForecastOverlay(event.target.checked)}
+                  />
+                  Forecast heatmap
+                </label>
+              </div>
               <RouteMap
+                key={trip.id}
                 trip={trip}
-                selectedRouteIndex={selectedRouteIndex ?? defaultSelectedRouteIndex(trip.routes)}
+                selectedRouteIndex={
+                  selectedRouteIndex ?? defaultSelectedRouteIndex(trip.routes) ?? 0
+                }
+                forecastHour={forecastHour}
+                showForecastOverlay={showForecastOverlay}
               />
+
             </div>
             <div className="route-cards">
               {shownRoutes(trip.routes).map((route) => (
-                <div key={route.provider_route_index}>
-                  <p>{route.provider_route_index}</p>
-                </div>
+                <RouteCard
+                  key={route.provider_route_index}
+                  route={route}
+                  departAt={trip.depart_at}
+                  weatherUnavailable={trip.status === 'WEATHER_FORECAST_UNAVAILABLE'}
+                  selected={selectedRouteIndex === route.provider_route_index}
+                  onSelect={() => setSelectedRouteIndex(route.provider_route_index)}
+                />
               ))}
             </div>
           </div>
+          <div className="legend">
+            <span className="legend-item">
+              <span className="dot" style={{ background: '#16a34a' }} /> Low
+            </span>
+            <span className="legend-item">
+              <span className="dot" style={{ background: '#ca8a04' }} /> Moderate
+            </span>
+            <span className="legend-item">
+              <span className="dot" style={{ background: '#ea580c' }} /> High
+            </span>
+            <span className="legend-item">
+              <span className="dot" style={{ background: '#dc2626' }} /> Severe
+            </span>
+            <span className="legend-item">
+              <span className="dot" style={{ background: '#7f1d1d' }} /> No Travel
+            </span>
+            <span className="legend-item">
+              <span className="dot" style={{ background: '#9ca3af' }} /> Unknown
+            </span>
+          </div>
+          <p className="wind-note">
+            Click a checkpoint for its arrival-time weather details.
+          </p>
         </div>
       )}
-      
     </section>
   )
 }
