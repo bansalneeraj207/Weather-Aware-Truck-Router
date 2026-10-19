@@ -1,5 +1,11 @@
-import { postJson } from './http'
+import { getJson, postJson } from './http'
+import { ApiError } from './types'
 import type { Severity } from './types'
+
+const HEALTH_ATTEMPTS = 2
+const HEALTH_TIMEOUT_MS = 75_000
+const HEALTH_RETRY_DELAY_MS = 1_500
+const TRIP_ANALYSIS_TIMEOUT_MS = 300_000
 
 export interface TripEndpoint {
   label: string
@@ -78,5 +84,36 @@ export interface TripRequest {
 }
 
 export function createTrip(request: TripRequest): Promise<TripResult> {
-  return postJson<TripResult>('/api/trips/', request)
+  return postJson<TripResult>('/api/trips/', request, {
+    timeoutMs: TRIP_ANALYSIS_TIMEOUT_MS,
+  })
+}
+
+export async function waitForApi(
+  onAttempt: (attempt: number, attempts: number) => void,
+): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt += 1) {
+    onAttempt(attempt, HEALTH_ATTEMPTS)
+    try {
+      const response = await getJson<{ status: string }>('/health/', {
+        timeoutMs: HEALTH_TIMEOUT_MS,
+      })
+      if (response?.status !== 'ok') {
+        throw new ApiError(
+          'The routing API health response was invalid.',
+          0,
+          response,
+          'INVALID_RESPONSE',
+        )
+      }
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt < HEALTH_ATTEMPTS) {
+        await new Promise((resolve) => window.setTimeout(resolve, HEALTH_RETRY_DELAY_MS))
+      }
+    }
+  }
+  throw lastError
 }

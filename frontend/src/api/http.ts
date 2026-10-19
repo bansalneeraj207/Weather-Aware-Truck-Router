@@ -2,36 +2,64 @@
 
 import { ApiError } from './types'
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
-export async function postJson<T>(path: string, body: unknown): Promise<T> {
+interface RequestOptions {
+  timeoutMs: number
+}
+
+export async function postJson<T>(
+  path: string,
+  body: unknown,
+  options: RequestOptions,
+): Promise<T> {
+  return requestJson<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, options)
+}
+
+export async function getJson<T>(
+  path: string,
+  options: RequestOptions,
+): Promise<T> {
+  return requestJson<T>(path, {}, options)
+}
+
+async function requestJson<T>(
+  path: string,
+  init: RequestInit,
+  { timeoutMs }: RequestOptions,
+): Promise<T> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
   let response: Response
   try {
     response = await fetch(`${BASE_URL}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      ...init,
+      signal: controller.signal,
     })
-  } catch {
-    throw new ApiError('Could not reach the routing API.', 0)
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiError('The routing API did not respond in time.', 0, error, 'TIMEOUT')
+    }
+    throw new ApiError('Could not reach the routing API.', 0, error, 'NETWORK')
+  } finally {
+    window.clearTimeout(timeout)
   }
 
-  const data = (await response.json().catch(() => null)) as unknown
-  if (!response.ok) {
-    throw new ApiError(_detail(data, response.status), response.status, data)
-  }
-  return data as T
-}
-
-export async function getJson<T>(path: string): Promise<T> {
-  let response: Response
+  let data: unknown
   try {
-    response = await fetch(`${BASE_URL}${path}`)
-  } catch {
-    throw new ApiError('Could not reach the routing API.', 0)
+    data = await response.json()
+  } catch (error) {
+    throw new ApiError(
+      'The routing API returned an unreadable response.',
+      response.status,
+      error,
+      'INVALID_RESPONSE',
+    )
   }
-
-  const data = (await response.json().catch(() => null)) as unknown
   if (!response.ok) {
     throw new ApiError(_detail(data, response.status), response.status, data)
   }

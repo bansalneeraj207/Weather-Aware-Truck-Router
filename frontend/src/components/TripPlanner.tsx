@@ -1,7 +1,7 @@
 /** Trip planner: origin, destination, departure, load, and route results. */
 
-import { useState } from 'react'
-import { createTrip } from '../api/trips'
+import { useRef, useState } from 'react'
+import { createTrip, waitForApi } from '../api/trips'
 import type { TripResult } from '../api/trips'
 import { ApiError } from '../api/types'
 import { RouteMap } from './RouteMap'
@@ -44,24 +44,43 @@ export default function TripPlanner() {
   const [showForecastOverlay, setShowForecastOverlay] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
+  const submissionInFlight = useRef(false)
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
+    if (submissionInFlight.current) return
+    submissionInFlight.current = true
     setPending(true)
+    setPendingMessage('Checking the routing API...')
     setError(null)
     const departure = new Date(depart)
     const loadWeight = Number(load)
     if (Number.isNaN(departure.getTime())) {
       setError('Choose a valid local departure date and time.')
       setPending(false)
+      setPendingMessage(null)
+      submissionInFlight.current = false
       return
     }
     if (!Number.isFinite(loadWeight) || loadWeight <= 0) {
       setError('Enter a load weight greater than 0 lb.')
       setPending(false)
+      setPendingMessage(null)
+      submissionInFlight.current = false
       return
     }
+    let tripRequestSent = false
     try {
+      await waitForApi((attempt, attempts) => {
+        setPendingMessage(
+          attempt === 1
+            ? 'Waking the free routing API if needed...'
+            : `The API is still waking; health retry ${attempt} of ${attempts}...`,
+        )
+      })
+      setPendingMessage('Analyzing routes and checkpoint weather...')
+      tripRequestSent = true
       const result = await createTrip({
         start: start.trim(),
         end: end.trim(),
@@ -78,9 +97,28 @@ export default function TripPlanner() {
     } catch (err) {
       setTrip(null)
       setSelectedRouteIndex(null)
-      setError(err instanceof ApiError ? err.message : 'Trip planning failed.')
+      if (err instanceof ApiError && err.code === 'TIMEOUT') {
+        setError(
+          tripRequestSent
+            ? 'The browser stopped waiting for trip analysis after 5 minutes. The request may still finish and be saved on the server; it was not automatically resubmitted. Wait before trying again.'
+            : 'The free routing API did not wake in time. No trip-creation request was sent; submit again to retry the health check.',
+        )
+      } else if (err instanceof ApiError && err.code === 'NETWORK') {
+        setError(
+          tripRequestSent
+            ? 'The connection was lost during trip analysis. The request may still finish on the server; it was not automatically resubmitted.'
+            : 'Could not reach the routing API. No trip-creation request was sent; submit again to retry.',
+        )
+      } else if (!tripRequestSent) {
+        const detail = err instanceof ApiError ? err.message : 'The routing API health check failed.'
+        setError(`${detail} No trip-creation request was sent; submit again to retry.`)
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Trip planning failed.')
+      }
     } finally {
       setPending(false)
+      setPendingMessage(null)
+      submissionInFlight.current = false
     }
   }
 
@@ -134,10 +172,11 @@ export default function TripPlanner() {
           />
         </label>
         <button type="submit" disabled={pending || !start.trim() || !end.trim()}>
-          {pending ? 'Planning...' : 'Plan trip'}
+          {pending ? 'Planning...' : error ? 'Try again' : 'Plan trip'}
         </button>
       </form>
 
+      {pendingMessage && <p className="routing-notice" role="status">{pendingMessage}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       
       {trip && (

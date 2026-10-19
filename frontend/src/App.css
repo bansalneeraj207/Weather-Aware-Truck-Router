@@ -222,6 +222,13 @@ button:disabled {
 .routing-notice { color: #2563eb; }
 .wind-note { margin: 0; font-size: 0.85rem; }
 
+.provider-credits {
+  margin: 1rem auto 2rem;
+  padding: 0 1rem;
+  max-width: 70rem;
+  font-size: 0.8rem;
+}
+
 @media (max-width: 48rem) {
   .panel {
     margin: 1.5rem 1rem;

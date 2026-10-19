@@ -1,17 +1,38 @@
 from datetime import datetime, timezone
+import threading
+import time
 import urllib.error
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from trips.providers.errors import ProviderError
-from trips.providers.http import request_with_retry
+from trips.providers.geocoding import geocode
+from trips.providers.http import ThreadSafeRateLimiter, request_with_retry
 from trips.providers.routing import RouteResult, fetch_route_alternatives
 from trips.serializers import TripRequestSerializer
 
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+
+
+class HealthEndpointTests(SimpleTestCase):
+    def test_health_is_database_and_provider_free(self) -> None:
+        # SimpleTestCase rejects database access. Patching urlopen additionally
+        # makes an accidental provider call fail this test.
+        with patch("urllib.request.urlopen") as urlopen:
+            response = self.client.get(reverse("health"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "ok"})
+        urlopen.assert_not_called()
+
+    def test_health_is_not_subject_to_api_throttling(self) -> None:
+        for _ in range(12):
+            response = self.client.get(reverse("health"))
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class TripsRootEndpointTests(APITestCase):
@@ -99,6 +120,64 @@ class ProviderRetryTests(SimpleTestCase):
         self.assertEqual(request_with_retry(operation, service_name="Weather service"), "ok")
         self.assertEqual(attempts, 2)
         sleep.assert_called_once_with(0.25)
+
+    def test_geocoding_rate_limits_every_retry_attempt(self):
+        cache.clear()
+        response = MagicMock()
+        response.read.return_value = (
+            b'[{"display_name":"Pune, India","lat":"18.5204","lon":"73.8567"}]'
+        )
+        response.__enter__.return_value = response
+
+        with (
+            patch(
+                "trips.providers.geocoding.urllib.request.urlopen",
+                side_effect=[urllib.error.URLError("temporary"), response],
+            ) as urlopen,
+            patch(
+                "trips.providers.geocoding.NOMINATIM_RATE_LIMITER.run",
+                side_effect=lambda operation: operation(),
+            ) as rate_limited_run,
+            patch("trips.providers.http.time.sleep"),
+        ):
+            result = geocode("retry-rate-limit-test-pune")
+
+        self.assertEqual(result.label, "Pune, India")
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(rate_limited_run.call_count, 2)
+
+
+class ProviderRateLimiterConcurrencyTests(SimpleTestCase):
+    def test_concurrent_threads_receive_spaced_attempt_slots(self):
+        interval = 0.02
+        limiter = ThreadSafeRateLimiter(interval)
+        barrier = threading.Barrier(4)
+        starts: list[float] = []
+        errors: list[BaseException] = []
+        results_lock = threading.Lock()
+
+        def wait_for_slot() -> None:
+            try:
+                barrier.wait()
+                started = limiter.run(time.monotonic)
+                with results_lock:
+                    starts.append(started)
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                with results_lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=wait_for_slot) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2)
+
+        self.assertFalse(errors)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        ordered = sorted(starts)
+        self.assertEqual(len(ordered), 4)
+        for earlier, later in zip(ordered, ordered[1:]):
+            self.assertGreaterEqual(later - earlier, interval * 0.9)
 
 
 class LongRouteTests(SimpleTestCase):

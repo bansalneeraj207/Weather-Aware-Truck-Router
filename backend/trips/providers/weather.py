@@ -7,6 +7,7 @@ the risk engine's hourly rates. Points are requested in batches of 100.
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -15,7 +16,9 @@ from datetime import datetime, timezone
 from trips.providers.errors import ProviderError
 from trips.providers.http import request_with_retry
 
-OPEN_METEO_BASE_URL = "https://api.open-meteo.com/v1/forecast"
+OPEN_METEO_BASE_URL = os.getenv(
+    "OPEN_METEO_BASE_URL", "https://api.open-meteo.com/v1/forecast"
+)
 OPEN_METEO_BATCH_SIZE = 100
 OPEN_METEO_FORECAST_DAYS = 16
 _MATCH_WINDOW = 3600

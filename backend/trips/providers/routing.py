@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -10,12 +11,21 @@ import polyline
 from trips.providers.errors import ProviderError
 from trips.providers.http import request_with_retry
 
-VALHALLA_ROUTE_URL = "https://valhalla1.openstreetmap.de/route"
+VALHALLA_ROUTE_URL = os.getenv(
+    "VALHALLA_ROUTE_URL", "https://valhalla1.openstreetmap.de/route"
+)
+VALHALLA_CLIENT_ID = os.getenv(
+    "VALHALLA_CLIENT_ID", "weather-aware-truck-router-local"
+)
 MAX_ROUTE_ALTERNATIVES = 3
 # Valhalla rejects requests at roughly 1,500 km. Keep individual legs below
 # that ceiling so a real road detour still has headroom.
 MAX_LEG_DISTANCE_METERS = 1_200_000
-_HEADERS = {"Content-Type": "application/json", "User-Agent": "truck-routing"}
+_HEADERS = {
+    "Content-Type": "application/json",
+    "User-Agent": "WeatherAwareTruckRouter/1.0",
+    "X-Client-Id": VALHALLA_CLIENT_ID,
+}
 
 # use_highways=1 is the strongest highway preference Valhalla accepts.
 # Living streets and tracks are avoided; service roads take a transition penalty.

@@ -13,20 +13,47 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 import os
 from pathlib import Path
 
+import dj_database_url
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Safe local defaults; deploying with DEBUG=0 requires an explicit secret key.
-DEBUG = os.getenv("DEBUG", "1") == "1"
+def _csv_env(name: str, default: str = "") -> list[str]:
+    return [value.strip() for value in os.getenv(name, default).split(",") if value.strip()]
+
+
+ENVIRONMENT = os.getenv("DJANGO_ENV", "development").strip().lower()
+ON_RENDER = os.getenv("RENDER", "").strip().lower() == "true"
+IS_PRODUCTION = ENVIRONMENT == "production" or ON_RENDER
+DEBUG = os.getenv("DEBUG", "0" if IS_PRODUCTION else "1") == "1"
+if IS_PRODUCTION and DEBUG:
+    raise RuntimeError("DEBUG must be 0 in production or on Render.")
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
-    if not DEBUG:
-        raise RuntimeError("DJANGO_SECRET_KEY must be set when DEBUG=0.")
+    if IS_PRODUCTION or not DEBUG:
+        raise RuntimeError(
+            "DJANGO_SECRET_KEY must be set in production, on Render, or when DEBUG=0."
+        )
     SECRET_KEY = "local-demo-only-not-for-deployment"
-ALLOWED_HOSTS = [
-    host for host in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if host
-]
+
+ALLOWED_HOSTS = _csv_env(
+    "ALLOWED_HOSTS", "" if IS_PRODUCTION else "localhost,127.0.0.1,testserver"
+)
+if IS_PRODUCTION and not ALLOWED_HOSTS:
+    raise RuntimeError("ALLOWED_HOSTS must be set in production or on Render.")
+
+FRONTEND_ORIGINS = _csv_env("FRONTEND_ORIGINS")
+if IS_PRODUCTION and not FRONTEND_ORIGINS:
+    raise RuntimeError("FRONTEND_ORIGINS must be set in production or on Render.")
+
+if IS_PRODUCTION:
+    for required_provider_setting in ("PROVIDER_USER_AGENT", "VALHALLA_CLIENT_ID"):
+        if not os.getenv(required_provider_setting, "").strip():
+            raise RuntimeError(
+                f"{required_provider_setting} must be set in production or on Render."
+            )
 
 
 # Application definition
@@ -38,13 +65,16 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    "corsheaders",
     "trips",
     "risk",
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    *([] if DEBUG else ["whitenoise.middleware.WhiteNoiseMiddleware"]),
     'django.contrib.sessions.middleware.SessionMiddleware',
+    "corsheaders.middleware.CorsMiddleware",
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -72,13 +102,50 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 
-# Database
-# https://docs.djangoproject.com/en/6.1/ref/settings/#databases
+# Database. Production must use the external Neon DATABASE_URL; SQLite remains
+# an intentionally local-only fallback.
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=60,
+            conn_health_checks=True,
+        )
+    }
+    if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
+        DATABASES["default"].setdefault("OPTIONS", {})["sslmode"] = "require"
+elif IS_PRODUCTION:
+    raise RuntimeError("DATABASE_URL must be set in production or on Render.")
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if IS_PRODUCTION and DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
+    raise RuntimeError("DATABASE_URL must identify PostgreSQL in production.")
+
+
+# Browser/API boundaries. The frontend does not send cookies cross-origin.
+CORS_ALLOWED_ORIGINS = FRONTEND_ORIGINS
+CSRF_TRUSTED_ORIGINS = FRONTEND_ORIGINS
+CORS_ALLOW_CREDENTIALS = False
+
+REST_FRAMEWORK = {
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {"anon": "10/minute", "user": "10/minute"},
+}
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "weather-aware-truck-router",
     }
 }
 
@@ -117,14 +184,32 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    },
+}
+
+
+# Render terminates TLS before proxying to Django.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = IS_PRODUCTION
+SESSION_COOKIE_SECURE = IS_PRODUCTION
+CSRF_COOKIE_SECURE = IS_PRODUCTION
+SECURE_HSTS_SECONDS = 31_536_000 if IS_PRODUCTION else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = IS_PRODUCTION
+SECURE_HSTS_PRELOAD = IS_PRODUCTION
 
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+if not IS_PRODUCTION:
+    MAILERS = {
+        'default': {
+            'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        },
+    }
