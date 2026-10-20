@@ -32,14 +32,19 @@ cd backend && python manage.py test
 cd frontend && npm run lint && npm run build
 ```
 
+After `neon deploy`, Django loads the ignored root `.env.local` automatically.
+Application requests use Neon's pooled `DATABASE_URL`; `manage.py migrate`
+prefers `DATABASE_URL_UNPOOLED` when it is available. `GET /ready/` performs a
+database round trip, while `GET /health/` remains a database-free liveness check.
+
 ## Deploy to Neon and Render
 
 `render.yaml` creates a Free Django Web Service and Free React Static Site. It
 pins Python `3.14.3` and Node `24.22.1`. The database is an external Neon Free
 PostgreSQL database; no Render database is created.
 
-1. Create a Neon Free project near Render's Singapore region. Use a fresh
-   database and copy its pooled connection string with `sslmode=require`.
+1. Use the linked Neon production branch. Run `neon deploy` after changing
+   `neon.ts`; it also refreshes the ignored `.env.local` connection values.
 2. In Render, create a Blueprint from this repository and confirm the API plan
    is **Free**. Render will request the values marked `sync: false` below.
 3. Deploy the API, then check `https://<api-host>/health/`. A successful response
@@ -54,6 +59,7 @@ PostgreSQL database; no Render database is created.
 | Name | Value |
 | --- | --- |
 | `DATABASE_URL` | Neon pooled PostgreSQL URL (secret) |
+| `DATABASE_URL_UNPOOLED` | Neon direct PostgreSQL URL for migrations (secret) |
 | `DJANGO_SECRET_KEY` | Render-generated secret |
 | `ALLOWED_HOSTS` | API hostname without `https://` |
 | `FRONTEND_ORIGINS` | Exact frontend HTTPS origin, no path |
