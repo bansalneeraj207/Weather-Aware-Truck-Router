@@ -5,7 +5,7 @@ import urllib.error
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 from trips.providers.errors import ProviderError
 from trips.providers.geocoding import geocode
@@ -33,6 +33,14 @@ class HealthEndpointTests(SimpleTestCase):
         for _ in range(12):
             response = self.client.get(reverse("health"))
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class ReadinessEndpointTests(TestCase):
+    def test_readiness_checks_the_database(self) -> None:
+        response = self.client.get(reverse("readiness"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "ok", "database": True})
 
 
 class TripsRootEndpointTests(APITestCase):

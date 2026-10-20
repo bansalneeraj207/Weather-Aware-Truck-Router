@@ -11,12 +11,21 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = BASE_DIR.parent
+
+# `neon deploy` writes local Neon credentials here. Real process environment
+# variables keep precedence, and tests stay on the isolated SQLite fallback.
+RUNNING_TESTS = "test" in sys.argv or "pytest" in Path(sys.argv[0]).name
+if not RUNNING_TESTS:
+    load_dotenv(PROJECT_ROOT / ".env.local")
 
 
 def _csv_env(name: str, default: str = "") -> list[str]:
@@ -104,7 +113,9 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Database. Production must use the external Neon DATABASE_URL; SQLite remains
 # an intentionally local-only fallback.
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_URL = "" if RUNNING_TESTS else os.getenv("DATABASE_URL", "").strip()
+if not RUNNING_TESTS and sys.argv[1:2] == ["migrate"]:
+    DATABASE_URL = os.getenv("DATABASE_URL_UNPOOLED", "").strip() or DATABASE_URL
 if DATABASE_URL:
     DATABASES = {
         "default": dj_database_url.parse(
